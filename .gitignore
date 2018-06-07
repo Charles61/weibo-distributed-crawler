@@ -7,5 +7,5 @@
 *.iml
 out
 gen
-sina_weibo_redis/settings.py
+#sina_weibo_redis/settings.py
 sina_weibo_redis/login/cookies-selenium.json

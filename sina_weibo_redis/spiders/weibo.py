@@ -28,8 +28,7 @@ class WeiboSpider(RedisSpider):
     redis_key = "weibospider:start_urls"
 
     def __init__(self, *args, **kwargs):
-        domain = kwargs.pop('domain', '')
-        self.allowed_domains = filter(None, domain.split(','))
+        self.allowed_domains = ['weibo.cn', 'weibo.com']
         super(WeiboSpider, self).__init__(*args, **kwargs)
 
     def parse(self, response):
@@ -51,7 +50,7 @@ class WeiboSpider(RedisSpider):
             logger.info('账号：[%s]，发现待爬微博 %s 条，总共 %s 页，每页 %s 条', response.meta['account'], total, page_count, page_size)
             for index in range(2, page_count + 1):
                 yield scrapy.Request(
-                    url=response.url + '&page=' + index,
+                    url=response.url + '&page=' + str(index),
                     callback=self.parse_pages,
                     meta={
                         'index': index
@@ -61,6 +60,7 @@ class WeiboSpider(RedisSpider):
             logger.error('账号：[%s]，获取搜索微博总条目数失败，错误原因：%s，返回信息：%s', response.meta['account'], e, page_json)
 
         #  处理第一页
+        response.meta['index'] = 1
         yield from self.parse_pages(response)
 
     def parse_pages(self, response):

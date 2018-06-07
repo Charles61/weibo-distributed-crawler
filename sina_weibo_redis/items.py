@@ -18,6 +18,8 @@ class WeiboItem(scrapy.Item):
     like_count = scrapy.Field()
     weibo_url = scrapy.Field()
 
+    item_type = scrapy.Field()
+
 
 class CommentItem(scrapy.Item):
     weibo_mid = scrapy.Field()
@@ -27,3 +29,5 @@ class CommentItem(scrapy.Item):
     content = scrapy.Field()
     time = scrapy.Field()
     like_count = scrapy.Field()
+
+    item_type = scrapy.Field()
