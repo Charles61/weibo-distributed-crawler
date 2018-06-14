@@ -50,7 +50,8 @@ class LoginWithSelenium:
         options.add_argument('--no-sandbox')  # Bypass OS security model
         options.add_argument('--disable-gpu')  # applicable to windows os only
         driver = webdriver.Chrome(chrome_options=options, executable_path=self.chrome_driver_path)
-        driver.get('https://passport.weibo.cn/signin/login')
+        driver.get(
+            'https://passport.weibo.cn/signin/login?entry=mweibo&res=wel&wm=3349&r=https%3A%2F%2Fm.weibo.cn%2F%3Fjumpfrom%3Dwapv4%26tip%3D1')
         submit = None
         try:
             submit = WebDriverWait(driver, 10).until(
@@ -58,7 +59,7 @@ class LoginWithSelenium:
             )
         except TimeoutException as e:
             logger.error('账号[%s]登录失败，原因：加载登录页面超时...', act, e)
-            return None, None
+            return None
 
         login_name = driver.find_element_by_id('loginName')
         login_pwd = driver.find_element_by_id('loginPassword')
@@ -69,7 +70,7 @@ class LoginWithSelenium:
         submit.click()
 
         try:  # 需要验证码验证
-            captcha_holder = WebDriverWait(driver, 5).until(
+            captcha_holder = WebDriverWait(driver, 3).until(
                 EC.visibility_of_element_located((By.ID, 'patternCaptchaHolder'))
             )
             sleep(2.1)
@@ -91,31 +92,21 @@ class LoginWithSelenium:
         except TimeoutException:  # 不需要验证码验证
             logger.info('账号[%s]不需要验证码', act)
 
-        nickname_holder = None
-        try:
-            nickname_holder = WebDriverWait(driver, 10).until(
-                EC.visibility_of_element_located((By.XPATH, '//div[@id="box"]//div[@data-node="homeDrop"]/p[@data-node="title"]'))
-            )
-        except TimeoutException:
-            logger.error('账号[%s]登录失败，原因：登录后未跳转到个人主页', act)
-            return None, None
-        nickname = nickname_holder.text
-        logger.info('账号：[%s]，昵称：[%s]登录成功', act, nickname)
-
-        # driver.get('https://weibo.com')
-        # try:
-        #     WebDriverWait(driver, 10).until(EC.visibility_of_element_located(
-        #         (By.XPATH, '//div[@node-type="top_all"]//div[@class="gn_position"]//li/a[@nm="name"]//em[@class="S_txt1"]')))
-        # except TimeoutException:
-        #     logger.error('账号[%s]登录失败，原因：登录后未能成功跳转到电脑版个人主页', act)
-        #     return None, None
+        sleep(2)
 
         cookies_raw = driver.get_cookies()
         cookies = {}
         for c in cookies_raw:
             cookies.update({c['name']: c['value']})
+
+        if check_cookies(cookies):
+            logger.info('账号：[%s]登录成功', act)
+        else:
+            logger.info('账号：[%s]登录失败，check_cookies失败', act)
+            cookies = None
+
         driver.close()
-        return cookies, nickname
+        return cookies
 
     def __get_captcha_path(self, img):
         """
@@ -228,16 +219,16 @@ def get_cookies_list(login_with_selenium, accounts):
             accounts_failed.append(a)
 
     for a in cookies_list:
-        if check_cookies(a):
+        if check_cookies(a['cookies']):
             accounts_logined.append(a)
-            logger.info('账号：[%s]，昵称：[%s]cookies有效，无需重复登录', a['act'], a['nickname'])
+            logger.info('账号：[%s]cookies有效，无需重复登录', a['act'])
         else:
             accounts_failed.append(a)
 
     for a in accounts_failed:
-        cookies, nickname = login_with_selenium.login(a['act'], a['pwd'])
+        cookies = login_with_selenium.login(a['act'], a['pwd'])
         if cookies:
-            accounts_logined.append({'act': a['act'], 'pwd': a['pwd'], 'nickname': nickname, 'cookies': cookies})
+            accounts_logined.append({'act': a['act'], 'pwd': a['pwd'], 'cookies': cookies})
         else:
             logging.error('账号[%s]登录失败', a['act'])
 
@@ -259,15 +250,12 @@ def check_cookies(cookies):
     session = requests.session()
     session.headers[
         'User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36 '
-    response = session.get(url='https://m.weibo.cn/', cookies=cookies['cookies'])
+    response = session.get(url='https://m.weibo.cn/api/config', cookies=cookies)
     logined = False
-    search = re.search('(window\.\$render_data = )(\{.*?\})(;</script>)', response.text)
     try:
-        json_str = search.group(2).replace('\'', '\"')
-        json_data = json.loads(s=json_str, encoding='utf-8')
-        if json_data['stage']['home'][0]['userName'] == cookies['nickname']:
-            logined = True
+        json_data = json.loads(s=response.text, encoding='utf-8')
+        logined = json_data['data']['login']
     except BaseException as e:
-        logger.warning('账号[%s]，昵称：[%s]的cookies失效，需要重新登录...', cookies['act'], cookies['nickname'])
+        logger.warning('账号[%s]的cookies无效...', cookies['act'])
     session.close()
     return logined

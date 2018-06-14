@@ -25,6 +25,7 @@ class WeiboSpider(RedisSpider):
     COMMENT_URL = 'https://m.weibo.cn/api/comments/show?id=%s&page=%s'
 
     name = 'weibo'
+
     redis_key = "weibospider:start_urls"
 
     def __init__(self, *args, **kwargs):
@@ -51,6 +52,7 @@ class WeiboSpider(RedisSpider):
             for index in range(2, page_count + 1):
                 yield scrapy.Request(
                     url=response.url + '&page=' + str(index),
+                    dont_filter=True,
                     callback=self.parse_pages,
                     meta={
                         'index': index
@@ -73,7 +75,27 @@ class WeiboSpider(RedisSpider):
         :return:
         """
         page_json = json.loads(response.body.decode('utf-8'))
-        for i in page_json['data']['cards'][-1]['card_group']:
+        card_group = []
+        try:
+            card_group = page_json['data']['cards'][-1]['card_group']
+        except IndexError as e:
+            if response.meta.get('retry', 0) == 10:
+                logger.error('账号：[%s]，第 %s 页解析微博列表json出错，已重试10次，放弃重试！错误原因：%s，返回信息：%s', response.meta['account'], response.meta['index'], e, page_json)
+                return None
+            else:
+                logger.warning('账号：[%s]，第 %s 页解析微博列表json出错，将重试第 %s 次，错误原因：%s，返回信息：%s', response.meta['account'], response.meta['index'], response.meta.get('retry', 0) + 1, e, page_json)
+                yield scrapy.Request(
+                    url=response.url,
+                    callback=self.parse_pages,
+                    dont_filter=True,
+                    meta={
+                        'index': response.meta['index'],
+                        'retry': response.meta.get('retry', 0) + 1
+                    }
+                )
+                return None
+
+        for i in card_group:
 
             item = WeiboItem()
             item['weibo_mid'] = int(i['mblog']['mid'])
@@ -91,7 +113,12 @@ class WeiboSpider(RedisSpider):
             item['weibo_url'] = i['scheme'].split('?')[0]
 
             if len(text_s.xpath('//a[text()="全文"]')) != 0:  # 有展开全文按钮，构造全文请求，获取全文
-                yield scrapy.Request(url=WeiboSpider.FULL_CONTENT_URL % item['weibo_mid'], callback=self.parse_full_content, meta={'item': item})
+                yield scrapy.Request(
+                    url=WeiboSpider.FULL_CONTENT_URL % item['weibo_mid'],
+                    callback=self.parse_full_content,
+                    dont_filter=True,
+                    meta={'item': item}
+                )
             else:
                 yield item
 
@@ -100,6 +127,7 @@ class WeiboSpider(RedisSpider):
             yield scrapy.Request(
                 url=comment_url,
                 callback=self.parse_comment,
+                dont_filter=True,
                 meta={
                     'mid': item['weibo_mid'],  # 微博mid
                     'index': 1,
@@ -141,7 +169,6 @@ class WeiboSpider(RedisSpider):
         except BaseException as e:
             logger.error('评论json转换失败错误原因：%s，返回：%s', e, response.body)
             return None
-        comment_list = None
         index = response.meta['index']
 
         if comment_json['ok'] != 1:
@@ -156,6 +183,7 @@ class WeiboSpider(RedisSpider):
         yield scrapy.Request(
             url=comment_url,
             callback=self.parse_comment,
+            dont_filter=True,
             meta={
                 'mid': response.meta['mid'],
                 'index': response.meta['index'] + 1,
